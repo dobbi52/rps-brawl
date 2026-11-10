@@ -42,7 +42,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .mascots img:nth-child(2){animation-delay:.15s}.mascots img:nth-child(3){animation-delay:.3s}
 @keyframes hop{0%,100%{transform:translateY(0) scale(1.18,.82)}12%{transform:translateY(0) scale(.9,1.12)}50%{transform:translateY(-10px) scale(.96,1.05)}88%{transform:translateY(0) scale(1.05,.95)}}
 .cards{display:flex;flex-direction:column;gap:10px}
-.card{border:3px solid var(--line);background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.card{border:3px solid var(--line);background:var(--panel);padding:8px 14px;display:flex;flex-direction:column;gap:4px}
 .card-top{display:flex;align-items:center;gap:12px}
 .card-top img{width:32px;height:32px}
 .card-top label{flex:1;font-size:20px}
@@ -52,6 +52,11 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .presets span{font-size:14px;color:var(--muted)}
 .presets div{display:flex;gap:8px}
 .presets button{flex:1 1 0;font-size:14px;padding:0 6px}
+.opt{display:flex;flex-direction:column;gap:8px}
+.opt>span{font-size:14px;color:var(--muted)}
+.chips{display:flex;gap:8px}
+.chip{flex:1 1 0;min-width:0;font-size:14px;padding:0 4px}
+.chip[aria-pressed=true]{background:var(--line);border-color:var(--gold)}
 .start-wrap{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:4px}
 .total{text-align:center;color:var(--muted);font-size:15px}
 #startBtn{min-height:60px;font-size:24px;background:var(--scis);color:var(--bg);border:3px solid var(--scis-hi)}
@@ -134,6 +139,23 @@ button:disabled{opacity:.4;cursor:not-allowed}
         <button type="button" id="pRand">Random</button>
       </div>
     </div>
+    <div class="opt">
+      <span id="arenaLbl">Arena</span>
+      <div class="chips" role="group" aria-labelledby="arenaLbl">
+        <button type="button" class="chip arena-chip" data-arena="square" aria-pressed="true">Square</button>
+        <button type="button" class="chip arena-chip" data-arena="donut" aria-pressed="false">Donut</button>
+        <button type="button" class="chip arena-chip" data-arena="hourglass" aria-pressed="false">Hourglass</button>
+        <button type="button" class="chip arena-chip" data-arena="random" aria-pressed="false">Random</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span id="obsLbl">Obstacles</span>
+      <div class="chips" role="group" aria-labelledby="obsLbl">
+        <button type="button" class="chip obs-chip" data-obs="pillars" aria-pressed="false">Pillars</button>
+        <button type="button" class="chip obs-chip" data-obs="mud" aria-pressed="false">Mud</button>
+        <button type="button" class="chip obs-chip" data-obs="bushes" aria-pressed="false">Bushes</button>
+      </div>
+    </div>
     <div class="start-wrap">
       <div class="total" id="total">Total: 90</div>
       <button type="button" id="startBtn">Start!</button>
@@ -160,7 +182,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
         <p id="winStats"></p>
         <div class="win-btns">
           <button type="button" id="againBtn">Same numbers again</button>
-          <button type="button" id="setupBtn2">Change numbers</button>
+          <button type="button" id="setupBtn2">Change setup</button>
         </div>
       </div>
     </div>
@@ -286,6 +308,22 @@ $('pLone').onclick = function(){ setCounts([1, 40, 100]); };
 $('pRand').onclick = function(){ setCounts([0,0,0].map(function(){ return 5 + Math.floor(Math.random() * 90); })); };
 syncSetup();
 
+var arenaSel = 'square', obsSel = { pillars: false, mud: false, bushes: false };
+var ARENA_NAME = { square: 'Square', donut: 'Donut', hourglass: 'Hourglass' };
+var OBS_NAME = { pillars: 'Pillars', mud: 'Mud', bushes: 'Bushes' };
+document.querySelectorAll('.arena-chip').forEach(function(b){
+  b.onclick = function(){
+    arenaSel = b.dataset.arena;
+    document.querySelectorAll('.arena-chip').forEach(function(o){ o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+  };
+});
+document.querySelectorAll('.obs-chip').forEach(function(b){
+  b.onclick = function(){
+    var k = b.dataset.obs; obsSel[k] = !obsSel[k];
+    b.setAttribute('aria-pressed', obsSel[k] ? 'true' : 'false');
+  };
+});
+
 // ---------- 소리 ----------
 var actx = null, soundOn = true, lastPop = 0;
 function initAudio(){
@@ -319,7 +357,79 @@ drawSoundBtn();
 
 // ---------- 경기장 ----------
 var cv = $('cv'), ctx = cv.getContext('2d'), arena = $('arena');
-var W = 300, H = 400, dpr = 1, gridBg = null;
+var W = 300, H = 400, dpr = 1, gridBg = null, bushBg = null;
+function hsh(a, b){ var n = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return n - Math.floor(n); }
+// 도트 계단 모양으로 칠하기: fn(가로, 세로, 칸 가운데 x, y)이 색을 돌려주면 그 칸을 칠함
+function pixFill(g, x0, y0, x1, y1, fn){
+  var c = 2;
+  for (var py = Math.floor(y0 / c) * c; py < y1; py += c){
+    for (var px = Math.floor(x0 / c) * c; px < x1; px += c){
+      var col = fn(px + c / 2, py + c / 2, px / c, py / c);
+      if (col){ g.fillStyle = col; g.fillRect(px, py, c, c); }
+    }
+  }
+}
+function paintGeo(g){
+  var G = GEO;
+  // 진흙 (바닥에 깔림)
+  G.mud.forEach(function(m){
+    var R = m.r * 1.2;
+    pixFill(g, m.x - R, m.y - R, m.x + R, m.y + R, function(x, y, ix, iy){
+      var dx = x - m.x, dy = y - m.y, d = Math.sqrt(dx * dx + dy * dy), th = Math.atan2(dy, dx);
+      var rr = m.r * (1 + 0.1 * Math.sin(3 * th + m.k) + 0.06 * Math.sin(7 * th + m.k * 2));
+      if (d >= rr) return null;
+      if (d > rr - 2.5) return '#2b2219';
+      var h = hsh(ix, iy);
+      return h < 0.12 ? '#56452f' : h > 0.9 ? '#33291e' : '#3f3326';
+    });
+  });
+  // 그림자
+  g.fillStyle = '#121419';
+  G.circles.forEach(function(c){
+    pixFill(g, c.x - c.r, c.y - c.r + 4, c.x + c.r, c.y + c.r + 4, function(x, y){
+      var dx = x - c.x, dy = y - c.y - 4; return dx * dx + dy * dy < c.r * c.r ? '#121419' : null;
+    });
+  });
+  G.rects.forEach(function(r){ g.fillStyle = '#121419'; g.fillRect(r.x, r.y + r.h, r.w, 4); });
+  // 기둥과 도넛
+  G.circles.forEach(function(c){
+    pixFill(g, c.x - c.r, c.y - c.r, c.x + c.r, c.y + c.r, function(x, y){
+      var dx = x - c.x, dy = y - c.y, d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= c.r) return null;
+      if (d > c.r - 2.5) return '#5a6172';
+      if (c.big && Math.abs(d - c.r * 0.62) < 1.3) return '#353a46';
+      if (c.big && Math.abs(d - c.r * 0.3) < 1.3) return '#353a46';
+      if (!c.big && Math.abs(d - c.r * 0.55) < 1.1) return '#353a46';
+      if (dx + dy < -c.r * 0.45 && d > c.r * 0.7) return '#3b404d';
+      return '#262a33';
+    });
+  });
+  // 모래시계 벽
+  G.rects.forEach(function(r){
+    g.fillStyle = '#3a3f4b'; g.fillRect(r.x, r.y, r.w, r.h);
+    g.fillStyle = '#5a6172'; g.fillRect(r.x, r.y, r.w, 2);
+    g.fillStyle = '#2a2e38'; g.fillRect(r.x, r.y + r.h - 2, r.w, 2);
+  });
+  // 수풀 (유닛 위에 덮는 층)
+  bushBg = null;
+  if (G.bush.length){
+    bushBg = document.createElement('canvas');
+    bushBg.width = Math.ceil(W * dpr); bushBg.height = Math.ceil(H * dpr);
+    var b = bushBg.getContext('2d'); b.setTransform(dpr, 0, 0, dpr, 0, 0);
+    G.bush.forEach(function(m){
+      var R = m.r * 1.25;
+      pixFill(b, m.x - R, m.y - R, m.x + R, m.y + R, function(x, y, ix, iy){
+        var dx = x - m.x, dy = y - m.y, d = Math.sqrt(dx * dx + dy * dy), th = Math.atan2(dy, dx);
+        var rr = m.r * (1 + 0.13 * Math.sin(4 * th + m.k) + 0.07 * Math.sin(9 * th + m.k));
+        if (d >= rr) return null;
+        if (d > rr - 2.5) return '#1d4429';
+        var h = hsh(ix + 31, iy + 7);
+        if (h < 0.015) return '#ffe08a';
+        return h < 0.2 ? '#4f9d62' : h > 0.82 ? '#265a37' : '#2f6b45';
+      });
+    });
+  }
+}
 function makeGridBg(){
   gridBg = document.createElement('canvas');
   gridBg.width = Math.ceil(W * dpr); gridBg.height = Math.ceil(H * dpr);
@@ -328,6 +438,7 @@ function makeGridBg(){
   g.fillStyle = '#21252e';
   for (var x = 16; x < W; x += 16) g.fillRect(x, 0, 1, H);
   for (var y = 16; y < H; y += 16) g.fillRect(0, y, W, 1);
+  if (GEO) paintGeo(g); else bushBg = null;
 }
 function resize(){
   var r = arena.getBoundingClientRect();
@@ -339,6 +450,7 @@ function resize(){
   }
   W = nw; H = nh;
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  if (S) buildGeo();
   makeGridBg();
 }
 try { new ResizeObserver(resize).observe(arena); } catch(e){ window.addEventListener('resize', resize); }
@@ -355,11 +467,22 @@ function newGame(counts){
   var px = total <= 120 ? 2 : total <= 260 ? 1.6 : 1.3;
   var size = 10 * px;
   var units = [];
-  var cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.28;
+  var kind = arenaSel === 'random' ? ['square', 'donut', 'hourglass'][Math.floor(Math.random() * 3)] : arenaSel;
+  S = {
+    units: units, parts: [], rings: [], time: 0, shake: 0,
+    size: size, px: px, bounds: { l:0, t:0, r:W, b:H },
+    log: [], conversions: 0, ended: false, endTime: 0, slow: 1, winShown: false, winner: -1,
+    wallMsg: false, counts: counts.slice(), start: counts.slice(),
+    arena: kind, obs: { pillars: obsSel.pillars, mud: obsSel.mud, bushes: obsSel.bushes }
+  };
+  buildGeo(); makeGridBg();
+  var cx = W / 2, cy = H / 2, m0 = Math.min(W, H), R = m0 * 0.28;
+  var HG = [[0.5, 0.25], [0.28, 0.74], [0.72, 0.74]];
   counts.forEach(function(n, t){
     var ang = -Math.PI / 2 + t * Math.PI * 2 / 3;
     var gx = cx + Math.cos(ang) * R, gy = cy + Math.sin(ang) * R;
-    var spread = Math.min(W, H) * (n <= 2 ? 0.04 : 0.16);
+    if (kind === 'hourglass'){ gx = W * HG[t][0]; gy = H * HG[t][1]; }
+    var spread = m0 * (n <= 2 ? 0.04 : kind === 'hourglass' ? 0.11 : 0.16);
     for (var i = 0; i < n; i++){
       units.push({
         x: clamp(gx + gauss() * spread * 1.3, size, W - size),
@@ -370,21 +493,85 @@ function newGame(counts){
         prey: null, pred: null, retarget: Math.random() * 0.3,
         wander: Math.random() * 6.28, born: Math.random() * 0.4,
         mode: 'cruise', mt: 0, bang: 0, sweat: 0, dustT: 0, lx: 0, ly: 0, seed: Math.random(),
-        daze: 0, dodgeCd: 0, dodgeT: 0, snip: Math.random(), snipHold: 0, hunters: 0, ang: 0
+        daze: 0, dodgeCd: 0, dodgeT: 0, snip: Math.random(), snipHold: 0, hunters: 0, ang: 0,
+        hidden: false, inMud: false, lost: 0
       });
     }
   });
-  S = {
-    units: units, parts: [], rings: [], time: 0, shake: 0,
-    size: size, px: px, bounds: { l:0, t:0, r:W, b:H },
-    log: [], conversions: 0, ended: false, endTime: 0, slow: 1, winShown: false, winner: -1,
-    wallMsg: false, counts: counts.slice(), start: counts.slice()
-  };
+  units.forEach(function(u){ for (var k = 0; k < 4; k++) solveObs(u, size * 0.5); });
   $('win').hidden = true;
   lastCounts = [-1, -1, -1];
   captionLock = 0;
+  var label = ARENA_NAME[kind] + ' arena';
+  ['pillars', 'mud', 'bushes'].forEach(function(k){ if (S.obs[k]) label += ' · ' + OBS_NAME[k]; });
+  setCaption(label, 'var(--muted)', 2);
 }
 function clamp(v, a, b){ return v < a ? a : v > b ? b : v; }
+
+// ---------- 경기장 모양과 장애물 ----------
+var GEO = null;
+var PILLAR_PTS = [[0.5, 0.18], [0.22, 0.36], [0.78, 0.36], [0.5, 0.5], [0.22, 0.64], [0.78, 0.64], [0.5, 0.82]];
+function buildGeo(){
+  var m = Math.min(W, H), size = S.size;
+  var g = { kind: S.arena, circles: [], rects: [], mud: [], bush: [], gap: null, wallMax: 0.3, th: 0 };
+  if (g.kind === 'donut'){ g.circles.push({ x: W / 2, y: H / 2, r: m * 0.15, big: true }); g.wallMax = 0.2; }
+  if (g.kind === 'hourglass'){
+    var th = Math.max(10, Math.round(m * 0.035)), gw = Math.max(size * 3.4, m * 0.22), y0 = Math.round(H / 2 - th / 2);
+    g.th = th; g.gap = { x: W / 2, w: gw };
+    g.rects.push({ x: -20, y: y0, w: W / 2 - gw / 2 + 20, h: th }, { x: W / 2 + gw / 2, y: y0, w: W / 2 - gw / 2 + 20, h: th });
+    g.wallMax = 0.25;
+  }
+  if (S.obs.pillars){
+    var pr = Math.max(size * 0.7, m * 0.045);
+    PILLAR_PTS.forEach(function(p){
+      var x = p[0] * W, y = p[1] * H;
+      if (g.kind === 'donut' && Math.hypot(x - W / 2, y - H / 2) < m * 0.15 + pr + size * 1.6) return;
+      if (g.kind === 'hourglass' && Math.abs(y - H / 2) < pr + g.th + size * 1.4) return;
+      g.circles.push({ x: x, y: y, r: pr });
+    });
+  }
+  if (S.obs.mud) [[0.2, 0.22], [0.8, 0.78]].forEach(function(p){ g.mud.push({ x: p[0] * W, y: p[1] * H, r: m * 0.12, k: p[0] * 7 }); });
+  if (S.obs.bushes) [[0.8, 0.22], [0.2, 0.78]].forEach(function(p){ g.bush.push({ x: p[0] * W, y: p[1] * H, r: m * 0.1, k: p[1] * 5 }); });
+  GEO = g;
+}
+// 장애물 안으로 파고들면 밖으로 밀어내기
+function solveObs(u, hs){
+  var g = GEO; if (!g) return;
+  for (var i = 0; i < g.circles.length; i++){
+    var c = g.circles[i], dx = u.x - c.x, dy = u.y - c.y, d = Math.sqrt(dx * dx + dy * dy) || 0.01, rr = c.r + hs * 0.8;
+    if (d < rr){
+      var nx = dx / d, ny = dy / d; u.x = c.x + nx * rr; u.y = c.y + ny * rr;
+      var vn = u.vx * nx + u.vy * ny; if (vn < 0){ u.vx -= nx * vn; u.vy -= ny * vn; }
+    }
+  }
+  for (i = 0; i < g.rects.length; i++){
+    var r = g.rects[i], e = hs * 0.8, l = r.x - e, t = r.y - e, rt = r.x + r.w + e, b = r.y + r.h + e;
+    if (u.x > l && u.x < rt && u.y > t && u.y < b){
+      var pl = u.x - l, pr = rt - u.x, pt = u.y - t, pb = b - u.y, mn = Math.min(pl, pr, pt, pb);
+      if (mn === pt){ u.y = t; if (u.vy > 0) u.vy = 0; }
+      else if (mn === pb){ u.y = b; if (u.vy < 0) u.vy = 0; }
+      else if (mn === pl){ u.x = l; if (u.vx > 0) u.vx = 0; }
+      else { u.x = rt; if (u.vx < 0) u.vx = 0; }
+    }
+  }
+}
+// 모래시계: 두 점 사이를 벽이 막는지 (통로를 지나면 안 막힘)
+function blocked(ax, ay, bx, by){
+  var g = GEO; if (!g || !g.gap) return false;
+  var mid = H / 2;
+  if ((ay - mid) * (by - mid) >= 0) return false;
+  var t = (mid - ay) / (by - ay), xc = ax + (bx - ax) * t;
+  return Math.abs(xc - g.gap.x) > g.gap.w / 2 - 4;
+}
+function pathDist(ax, ay, bx, by){
+  if (!blocked(ax, ay, bx, by)) return Math.hypot(bx - ax, by - ay);
+  var gx = GEO.gap.x, gy = H / 2;
+  return Math.hypot(gx - ax, gy - ay) + Math.hypot(bx - gx, by - gy);
+}
+function waypoint(u, tx, ty){
+  if (!blocked(u.x, u.y, tx, ty)) return null;
+  return { x: GEO.gap.x + (u.seed - 0.5) * GEO.gap.w * 0.35, y: H / 2 };
+}
 
 var grid = null, gridNext = null, gCols = 0, gRows = 0, gCell = 32;
 function buildGrid(){
@@ -417,16 +604,16 @@ function findPrey(u, type){
   var best = null, bs = 1e18, us = S.units;
   for (var i = 0; i < us.length; i++){
     var o = us[i]; if (o.t !== type || o.daze > 0) continue;
-    var dx = o.x - u.x, dy = o.y - u.y;
+    var dist = pathDist(u.x, u.y, o.x, o.y);
+    if (o.hidden && dist > 40) continue;   // 수풀 속은 가까이 가야 보임
     var h = o.hunters - (u.prey === o ? 1 : 0);
-    var sc = Math.sqrt(dx * dx + dy * dy) * (1 + 0.7 * h);
+    var sc = dist * (1 + 0.7 * h);
     if (sc < bs){ bs = sc; best = o; }
   }
   return best;
 }
 function preyScore(u, o){
-  var dx = o.x - u.x, dy = o.y - u.y;
-  return Math.sqrt(dx * dx + dy * dy) * (1 + 0.7 * (o.hunters - (u.prey === o ? 1 : 0)));
+  return pathDist(u.x, u.y, o.x, o.y) * (1 + 0.7 * (o.hunters - (u.prey === o ? 1 : 0)));
 }
 
 function step(dt){
@@ -434,11 +621,19 @@ function step(dt){
   s.time += dt;
   for (var hi = 0; hi < us.length; hi++) us[hi].hunters = 0;
   for (hi = 0; hi < us.length; hi++){ var hp = us[hi].prey; if (hp) hp.hunters++; }
+  // 수풀에 숨었는지, 진흙에 빠졌는지
+  for (hi = 0; hi < us.length; hi++){
+    var hu = us[hi]; hu.hidden = false; hu.inMud = false;
+    if (!GEO) continue;
+    for (var zi = 0; zi < GEO.bush.length; zi++){ var zb = GEO.bush[zi]; if (Math.hypot(hu.x - zb.x, hu.y - zb.y) < zb.r * 0.92) hu.hidden = true; }
+    for (zi = 0; zi < GEO.mud.length; zi++){ var zm = GEO.mud[zi]; if (Math.hypot(hu.x - zm.x, hu.y - zm.y) < zm.r * 0.92) hu.inMud = true; }
+  }
   // 벽
+  var wm = GEO ? GEO.wallMax : WALL_MAX;
   var wt = s.time - WALL_START;
   var p = wt <= 0 ? 0 : Math.min(1, wt / WALL_DUR);
   p = p * p * (3 - 2 * p);
-  var ix = W * WALL_MAX * p, iy = H * WALL_MAX * p;
+  var ix = W * wm * p, iy = H * wm * p;
   s.bounds.l = ix; s.bounds.r = W - ix; s.bounds.t = iy; s.bounds.b = H - iy;
   if (wt > 0 && !s.wallMsg){ s.wallMsg = true; setCaption('The walls are closing in!', '#e0685a', 2); pop(0, true); s.shake = Math.min(6, s.shake + 3); }
 
@@ -459,6 +654,7 @@ function step(dt){
     if (u.dodgeCd > 0) u.dodgeCd -= dt;
     if (u.dodgeT > 0) u.dodgeT -= dt;
     if (u.snipHold > 0) u.snipHold -= dt;
+    if (u.lost > 0) u.lost -= dt;
     var dazed = u.daze > 0;
     if (dazed){ u.daze -= dt; u.prey = null; u.pred = null; u.mode = 'cruise'; }
     // 가위질 박자
@@ -467,8 +663,13 @@ function step(dt){
     var pT = prey(u.t), newTarget = false;
     if (u.prey && (u.prey.t !== pT || u.prey.daze > 0)) u.prey = null;
     if (u.pred && (u.pred.t !== pred(u.t) || u.pred.daze > 0)) u.pred = null;
+    // 쫓던 먹이가 수풀에 숨으면 놓침
+    if (u.prey && u.prey.hidden && Math.hypot(u.prey.x - u.x, u.prey.y - u.y) > 55){
+      u.prey = null; u.lost = 0.8; u.retarget = 0.6;
+      if (u.mode === 'dash' || u.mode === 'aim'){ u.mode = 'rest'; u.mt = 0.4; }
+    }
     u.retarget -= dt;
-    if (!dazed && (u.retarget <= 0 || !u.prey)){
+    if (!dazed && (u.retarget <= 0 || (!u.prey && u.lost <= 0))){
       u.retarget = 0.3 + Math.random() * 0.15;
       if (s.counts[pT] > 0){
         var cand = findPrey(u, pT);
@@ -484,8 +685,15 @@ function step(dt){
     var ax = 0, ay = 0, dx, dy, d, dP = 1e9, fx = 0, fy = 0;
     if (u.prey){
       var lead = u.mode === 'dash' || u.mode === 'aim' ? 0.25 : 0;
-      dx = u.prey.x + u.prey.vx * lead - u.x; dy = u.prey.y + u.prey.vy * lead - u.y;
+      var ptx = u.prey.x + u.prey.vx * lead, pty = u.prey.y + u.prey.vy * lead;
+      dx = ptx - u.x; dy = pty - u.y;
       dP = Math.sqrt(dx * dx + dy * dy) || 1; fx = dx / dP; fy = dy / dP;
+      // 벽 너머면 통로 쪽으로 돌아가기
+      var wp = waypoint(u, ptx, pty);
+      if (wp){
+        var wx = wp.x - u.x, wy = wp.y - u.y, wl = Math.sqrt(wx * wx + wy * wy) || 1;
+        fx = wx / wl; fy = wy / wl; dP = wl + Math.hypot(ptx - wp.x, pty - wp.y);
+      }
     }
     // 사냥 단계: 어슬렁 → 노려보기 → 돌진 → 숨 고르기
     u.mt -= dt;
@@ -510,7 +718,7 @@ function step(dt){
     }
     // 도망: 나를 노리고 돌진해 오면 허둥지둥
     var panic = false;
-    if (u.pred && !s.ended){
+    if (u.pred && !s.ended && !blocked(u.x, u.y, u.pred.x, u.pred.y)){
       dx = u.x - u.pred.x; dy = u.y - u.pred.y; d = Math.sqrt(dx * dx + dy * dy) || 1;
       panic = u.pred.prey === u && (u.pred.mode === 'dash' || u.pred.mode === 'aim') && d < 140;
       if (d < 110 || panic){
@@ -566,6 +774,36 @@ function step(dt){
           life: 0.32, max: 0.32, c: '#5a6172', sz: 2 });
       }
     }
+    // 장애물 돌아가기: 기둥에 부딪힐 방향이면 옆으로 미끄러지듯 비켜감
+    if (GEO){
+      var hs0 = size * 0.5;
+      for (var ci = 0; ci < GEO.circles.length; ci++){
+        var oc = GEO.circles[ci], cdx = u.x - oc.x, cdy = u.y - oc.y, cd = Math.sqrt(cdx * cdx + cdy * cdy) || 0.01;
+        var clear = cd - oc.r - hs0;
+        if (clear < 34){
+          var cnx = cdx / cd, cny = cdy / cd, cw = 1 - Math.max(0, clear) / 34;
+          var into = -(ax * cnx + ay * cny);
+          if (into > 0){
+            var tnx = -cny, tny = cnx, dot = ax * tnx + ay * tny;
+            var side2 = Math.abs(dot) < 0.15 ? (u.seed > 0.5 ? 1 : -1) : dot > 0 ? 1 : -1;
+            ax += tnx * side2 * cw * (into * 1.2 + 0.6); ay += tny * side2 * cw * (into * 1.2 + 0.6);
+            ax += cnx * into * cw; ay += cny * into * cw;
+          }
+          ax += cnx * cw * 0.8; ay += cny * cw * 0.8;
+        }
+      }
+      for (ci = 0; ci < GEO.rects.length; ci++){
+        var rc = GEO.rects[ci];
+        var npx = clamp(u.x, rc.x, rc.x + rc.w), npy = clamp(u.y, rc.y, rc.y + rc.h);
+        var rdx = u.x - npx, rdy = u.y - npy, rd = Math.sqrt(rdx * rdx + rdy * rdy) || 0.01, rcl = rd - hs0;
+        if (rcl < 26){ var rw = (1 - Math.max(0, rcl) / 26) * 1.6; ax += rdx / rd * rw; ay += rdy / rd * rw; }
+      }
+    }
+    // 진흙: 첨벙첨벙
+    if (u.inMud && spd > 12 && Math.random() < dt * 7 && s.parts.length < 900){
+      s.parts.push({ x: u.x + (Math.random() - 0.5) * size * 0.6, y: u.y + size * 0.4, vx: (Math.random() - 0.5) * 30, vy: -15 - Math.random() * 20,
+        life: 0.35, max: 0.35, c: Math.random() < 0.5 ? '#6b5440' : '#4a3a2a', sz: 2 });
+    }
     // 벽 피하기
     var m = 26;
     if (u.x - B.l < m) ax += (1 - (u.x - B.l) / m) * 1.8;
@@ -582,6 +820,7 @@ function step(dt){
     var lim = s.ended ? 30 : dazed ? 16 : mode === 'dash' ? 100 : mode === 'aim' ? 10 : mode === 'rest' ? 18 : maxV;
     if (panic && mode !== 'dash') lim = Math.max(lim, 72);
     if (u.dodgeT > 0) lim = Math.max(lim, 100);
+    if (u.inMud) lim *= 0.5;
     if (spd > lim){ u.vx *= lim / spd; u.vy *= lim / spd; }
     u.x += u.vx * dt; u.y += u.vy * dt;
     var hs = size * 0.5;
@@ -589,6 +828,7 @@ function step(dt){
     if (u.x > B.r - hs){ u.x = B.r - hs; u.vx = -Math.abs(u.vx) * 0.5; }
     if (u.y < B.t + hs){ u.y = B.t + hs; u.vy = Math.abs(u.vy) * 0.5; }
     if (u.y > B.b - hs){ u.y = B.b - hs; u.vy = -Math.abs(u.vy) * 0.5; }
+    solveObs(u, hs);
   }
 
   // 충돌
@@ -627,6 +867,8 @@ function step(dt){
       }
     }
   }
+
+  if (GEO) for (var so = 0; so < us.length; so++) solveObs(us[so], size * 0.5);
 
   // 조각·고리
   for (var k = s.parts.length - 1; k >= 0; k--){
@@ -704,7 +946,8 @@ function draw(){
   // 좁아질 곳 미리 보기
   var wt = s.time - WALL_START;
   if (wt < WALL_DUR){
-    var tx = W * WALL_MAX, ty = H * WALL_MAX;
+    var wm = GEO ? GEO.wallMax : WALL_MAX;
+    var tx = W * wm, ty = H * wm;
     var blink = wt > -5 && wt < 0 ? (Math.floor(s.time * 4) % 2 ? 0.9 : 0.35) : 0.35;
     ctx.globalAlpha = blink;
     ctx.fillStyle = '#e0685a';
@@ -820,7 +1063,23 @@ function draw(){
       ctx.fillRect(bx, by + bp * 5, bp * 2, bp * 2);
       ctx.globalAlpha = 1;
     }
+    // 놓쳤다? 물음표
+    if (u.lost > 0 && u.bang <= 0){
+      var qp = Math.max(1.5, s.px * 1.1);
+      var qx = u.x - qp * 1.5, qy = topY - size - 4 - qp * 5 - Math.sin((0.8 - u.lost) * 9) * 1.5;
+      ctx.globalAlpha = u.lost < 0.2 ? u.lost / 0.2 : 1;
+      var QR = ['111', '001', '011', '000', '010'];
+      for (var qr = 0; qr < 5; qr++) for (var qc = 0; qc < 3; qc++) if (QR[qr][qc] === '1'){
+        ctx.fillStyle = '#14161c'; ctx.fillRect(qx + qc * qp - 1, qy + qr * qp - 1, qp + 2, qp + 2);
+      }
+      ctx.fillStyle = '#ffe08a';
+      for (qr = 0; qr < 5; qr++) for (qc = 0; qc < 3; qc++) if (QR[qr][qc] === '1') ctx.fillRect(qx + qc * qp, qy + qr * qp, qp, qp);
+      ctx.globalAlpha = 1;
+    }
   }
+
+  // 수풀은 유닛 위로 덮어서 숨은 것처럼
+  if (bushBg){ ctx.globalAlpha = 0.84; ctx.drawImage(bushBg, 0, 0, W, H); ctx.globalAlpha = 1; }
 
   // 조각
   s.parts.forEach(function(q){
